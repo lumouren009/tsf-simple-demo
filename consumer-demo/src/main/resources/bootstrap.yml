@@ -1,0 +1,8 @@
+server:
+  port: 18083
+spring:
+  application:
+    name: consumer-demo
+tsf:
+  auth:
+    enable: false
