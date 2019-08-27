@@ -4,15 +4,16 @@ from datetime import datetime
 from qcloud_cos import CosConfig
 from qcloud_cos import CosS3Client
 
+# 密钥参数，替换为用户的secret_id和secret_key
+secret_id = "#"
+secret_key = "#"
+
 service = "tsf"
-host = "tsf.ap-chongqing.tencentcloudapi.com"
+host = "tsf.tencentcloudapi.com"
 endpoint = "https://" + host
-region = "ap-chongqing"
+region = "ap-guangzhou"
 version = "2018-03-26"
 algorithm = "TC3-HMAC-SHA256"
-
-secret_id = ""
-secret_key = ""
 
 def getHeader(params, action, http_request_method, host=host, version=version, region=region):
     timestamp = int(time.time())
@@ -92,12 +93,21 @@ def get_file_type(path):
     else:
         raise Exception("Unknown file type")
     
+def getPkgInfo(application_id, pkg_version): 
+    params = dict(ApplicationId=application_id, SearchWord=pkg_version)
+    headers = getHeader(params, "DescribePkgs", "POST")
+    r = requests.post(endpoint, headers=headers, data=json.dumps(params))
+    print r.content
+    return json.loads(r.content)['Response']['Result']
+
 def getUploadInfo(application_id, pkg_name, pkg_version, pkg_type, pkgDesc="" ):
     params = dict(ApplicationId=application_id, PkgName=pkg_name, PkgVersion=pkg_version, PkgDesc=pkgDesc, PkgType=pkg_type)
     headers = getHeader(params, "GetUploadInfo", "POST")
     r = requests.post(endpoint, headers = headers, data=json.dumps(params))
+    # print "-----------------"
     # print r.status_code
     # print r.content
+    # print "-----------------"
     cosUploadInfo = json.loads(r.content)['Response']['Result']
     return cosUploadInfo
     
@@ -110,9 +120,9 @@ def uploadFile(path, uploadInfo, application_id, app_Id, pkg_version):
     config = CosConfig(Region=region, SecretId=secret_id, SecretKey=secret_key, Token=token, Scheme=scheme)
     # 2. 获取客户端对象
     client = CosS3Client(config)
-    
+ 
     file_name = os.path.basename(path)
-    key = app_Id+"/"+application_id+"/"+pkg_version+"/"+file_name
+    key = app_Id+"/"+application_id+"/"+pkg_version+"/"+file_name 
     response = client.upload_file(
         Bucket=uploadInfo['Bucket'],
         LocalFilePath=path,
@@ -149,16 +159,23 @@ def deployGroup(group_id, pkg_id, startup_params):
     print r.content
         
 if __name__ == "__main__":
-    path = 'provider-demo/target/provider-demo-1.10.0-RELEASE.jar'                      # 本地文件路径
-    applicationId = 'application-evj4klvb'                                              # 应用ID
-    pkg_version = sys.argv[1]                                                           # 程序包版本
-    appId = '1257356411'                                                                # 用户APPID
-    group_id = 'group-jy9d7gvg'                                                         # 部署组ID
-    startup_params = '-Xms128m -Xmx512m -XX:MetaspaceSize=128m -XX:MaxMetaspaceSize=512m'             # 启动参数
-    secret_id = sys.argv[2]
-    secret_key = sys.argv[3]
+    path = sys.argv[1]                      # 本地文件路径
+    applicationId = sys.argv[2]             # 应用ID
+    pkg_version = sys.argv[3]               # 程序包版本
+    appId = sys.argv[4]                     # 用户APPID
+    group_id = sys.argv[5]                  # 部署组ID
+    startup_params = sys.argv[6]             # 启动参数
     pkg_name = os.path.basename(path)
     pkg_type = get_file_type(pkg_name)
-    uploadInfo = getUploadInfo(applicationId, pkg_name, pkg_version, pkg_type)  
-    uploadFile(path, uploadInfo, applicationId, appId, pkg_version) #
-    deployGroup(group_id, uploadInfo['PkgId'], startup_params)
+    
+    pkgInfo = getPkgInfo(applicationId, pkg_version)
+    if pkgInfo['TotalCount'] > 0:
+        print "[INFO] {} has uploaded version {}, no need upload".format(applicationId, pkg_version)
+        pkgId = pkgInfo['Content'][0]['PkgId']
+    else:
+        print "[INFO] {} not uploaded version {}, upload now".format(applicationId, pkg_version)
+        uploadInfo = getUploadInfo(applicationId, pkg_name, pkg_version, pkg_type)  
+        uploadFile(path, uploadInfo, applicationId, appId, pkg_version) 
+        pkgId = uploadInfo['PkgId']
+
+    deployGroup(group_id, pkgId, startup_params)
